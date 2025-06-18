@@ -429,7 +429,7 @@ async def main() -> None:
                         response = await server.handle_request(request)
 
                         # Build response
-                        response_data = {"jsonrpc": "2.0"}
+                        response_data: Dict[str, Any] = {"jsonrpc": "2.0"}
 
                         if response.id is not None:
                             response_data["id"] = response.id
@@ -452,7 +452,7 @@ async def main() -> None:
                         try:
                             req_data = json.loads(line)
                             if "id" in req_data:
-                                error_response = {
+                                error_response: Dict[str, Any] = {
                                     "jsonrpc": "2.0",
                                     "id": req_data["id"],
                                     "error": {"code": -32603, "message": str(e)},
