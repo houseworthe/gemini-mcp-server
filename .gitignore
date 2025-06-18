@@ -53,6 +53,9 @@ Thumbs.db
 htmlcov/
 .tox/
 .nox/
+coverage.xml
+*.cover
+.hypothesis/
 
 # Distribution
 .pypirc
