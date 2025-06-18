@@ -1,185 +1,325 @@
-import pytest
 import asyncio
-import json
-from unittest.mock import Mock, patch, AsyncMock
-from server import GeminiMCPServer
+import os
+import sys
+from unittest.mock import Mock, patch
+
+import pytest
+
+# Add the parent directory to the path so we can import server
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from server import GeminiMCPServer, Request
 
 
 @pytest.fixture
-def mock_model():
-    """Create a mock Gemini model."""
-    with patch('google.generativeai.GenerativeModel') as mock:
-        model_instance = Mock()
-        model_instance.generate_content_async = AsyncMock()
-        mock.return_value = model_instance
-        yield model_instance
+def mock_requests():
+    """Mock the requests library."""
+    with patch("server.requests") as mock:
+        yield mock
 
 
 @pytest.fixture
-async def server(mock_model):
+async def server_instance():
     """Create a test server instance."""
-    with patch.dict('os.environ', {'GEMINI_API_KEY': 'test-api-key'}):
-        server = GeminiMCPServer()
-        server.model = mock_model
-        yield server
+    with patch.dict("os.environ", {"GEMINI_API_KEY": "test-api-key"}):
+        instance = GeminiMCPServer()
+        yield instance
 
 
 class TestGeminiMCPServer:
     """Test suite for GeminiMCPServer."""
-    
+
     @pytest.mark.asyncio
-    async def test_server_initialization(self):
+    async def test_server_initialization_with_api_key(self):
         """Test server initializes correctly with API key."""
-        with patch.dict('os.environ', {'GEMINI_API_KEY': 'test-key'}):
-            with patch('google.generativeai.configure') as mock_configure:
-                server = GeminiMCPServer()
-                mock_configure.assert_called_once_with(api_key='test-key')
-    
+        with patch.dict("os.environ", {"GEMINI_API_KEY": "test-key"}):
+            instance = GeminiMCPServer()
+            assert instance.api_configured is True
+            assert instance.api_key == "test-key"
+
     @pytest.mark.asyncio
     async def test_server_initialization_no_api_key(self):
-        """Test server raises error without API key."""
-        with patch.dict('os.environ', {}, clear=True):
-            with pytest.raises(ValueError, match="GEMINI_API_KEY environment variable is required"):
-                server = GeminiMCPServer()
-    
+        """Test server initializes without API key."""
+        with patch.dict("os.environ", {}, clear=True):
+            instance = GeminiMCPServer()
+            assert instance.api_configured is False
+
     @pytest.mark.asyncio
-    async def test_ask_gemini_success(self, server, mock_model):
-        """Test successful ask_gemini call."""
-        mock_response = Mock()
-        mock_response.text = "Test response"
-        mock_model.generate_content_async.return_value = mock_response
-        
-        result = await server.ask_gemini("Test question")
-        
-        assert result == "Test response"
-        mock_model.generate_content_async.assert_called_once_with(
-            "Test question",
-            generation_config=server.generation_config
-        )
-    
+    async def test_handle_initialize(self, server_instance):
+        """Test initialize request handling."""
+        request = Request(id=1, method="initialize", params={})
+        response = await server_instance.handle_request(request)
+
+        assert response.id == 1
+        assert response.result is not None
+        assert response.result["protocolVersion"] == "2024-11-05"
+        assert "capabilities" in response.result
+        assert "serverInfo" in response.result
+
     @pytest.mark.asyncio
-    async def test_ask_gemini_error_handling(self, server, mock_model):
-        """Test ask_gemini error handling."""
-        mock_model.generate_content_async.side_effect = Exception("API Error")
-        
-        with pytest.raises(RuntimeError, match="Gemini API error: API Error"):
-            await server.ask_gemini("Test question")
-    
-    @pytest.mark.asyncio
-    async def test_code_review_success(self, server, mock_model):
-        """Test successful code review."""
-        mock_response = Mock()
-        mock_response.text = "Code review feedback"
-        mock_model.generate_content_async.return_value = mock_response
-        
-        code = "def hello(): print('world')"
-        result = await server.code_review(code, "test.py", "Check for bugs")
-        
-        assert result == "Code review feedback"
-        call_args = mock_model.generate_content_async.call_args[0][0]
-        assert "def hello(): print('world')" in call_args
-        assert "test.py" in call_args
-        assert "Check for bugs" in call_args
-    
-    @pytest.mark.asyncio
-    async def test_brainstorm_success(self, server, mock_model):
-        """Test successful brainstorming."""
-        mock_response = Mock()
-        mock_response.text = "Brainstorm ideas"
-        mock_model.generate_content_async.return_value = mock_response
-        
-        result = await server.brainstorm("Test topic", "Test constraints")
-        
-        assert result == "Brainstorm ideas"
-        call_args = mock_model.generate_content_async.call_args[0][0]
-        assert "Test topic" in call_args
-        assert "Test constraints" in call_args
-    
-    @pytest.mark.asyncio
-    async def test_analyze_large_content(self, server, mock_model):
-        """Test large content analysis."""
-        mock_response = Mock()
-        mock_response.text = "Analysis results"
-        mock_model.generate_content_async.return_value = mock_response
-        
-        large_content = "x" * 10000  # Simulate large content
-        result = await server.analyze_large(large_content, "performance", "specific questions")
-        
-        assert result == "Analysis results"
-        call_args = mock_model.generate_content_async.call_args[0][0]
-        assert large_content in call_args
-        assert "performance" in call_args
-        assert "specific questions" in call_args
-    
-    @pytest.mark.asyncio
-    async def test_list_tools(self, server):
-        """Test list_tools returns all expected tools."""
-        tools = await server.list_tools()
-        
+    async def test_handle_tools_list(self, server_instance):
+        """Test tools/list request handling."""
+        request = Request(id=2, method="tools/list", params={})
+        response = await server_instance.handle_request(request)
+
+        assert response.id == 2
+        assert response.result is not None
+        assert "tools" in response.result
+        tools = response.result["tools"]
+        assert len(tools) == 4
+
         tool_names = [tool["name"] for tool in tools]
         assert "ask_gemini" in tool_names
         assert "gemini_code_review" in tool_names
         assert "gemini_brainstorm" in tool_names
         assert "gemini_analyze_large" in tool_names
-        assert len(tools) == 4
-    
+
     @pytest.mark.asyncio
-    async def test_call_tool_ask_gemini(self, server, mock_model):
-        """Test calling ask_gemini through call_tool."""
+    async def test_handle_unknown_method(self, server_instance):
+        """Test handling of unknown method."""
+        request = Request(id=3, method="unknown/method", params={})
+        response = await server_instance.handle_request(request)
+
+        assert response.id == 3
+        assert response.error is not None
+        assert response.error["code"] == -32601
+        assert "Method not found" in response.error["message"]
+
+    @pytest.mark.asyncio
+    async def test_tools_call_no_api_key(self):
+        """Test tools/call without API key configured."""
+        with patch.dict("os.environ", {}, clear=True):
+            instance = GeminiMCPServer()
+            request = Request(
+                id=4,
+                method="tools/call",
+                params={"name": "ask_gemini", "arguments": {"question": "test"}},
+            )
+            response = await instance.handle_request(request)
+
+            assert response.error is not None
+            assert "Gemini API not configured" in response.error["message"]
+
+    @pytest.mark.asyncio
+    async def test_tools_call_missing_name(self, server_instance):
+        """Test tools/call with missing tool name."""
+        request = Request(id=5, method="tools/call", params={})
+        response = await server_instance.handle_request(request)
+
+        assert response.error is not None
+        assert response.error["code"] == -32602
+        assert "missing tool name" in response.error["message"]
+
+    @pytest.mark.asyncio
+    async def test_tools_call_unknown_tool(self, server_instance):
+        """Test tools/call with unknown tool."""
+        request = Request(
+            id=6, method="tools/call", params={"name": "unknown_tool", "arguments": {}}
+        )
+        response = await server_instance.handle_request(request)
+
+        assert response.error is not None
+        assert response.error["code"] == -32602
+        assert "Unknown tool" in response.error["message"]
+
+    @pytest.mark.asyncio
+    async def test_ask_gemini_success(self, server_instance, mock_requests):
+        """Test successful ask_gemini call."""
         mock_response = Mock()
-        mock_response.text = "Tool response"
-        mock_model.generate_content_async.return_value = mock_response
-        
-        result = await server.call_tool("ask_gemini", {"question": "Test"})
-        
-        assert result["content"][0]["type"] == "text"
-        assert result["content"][0]["text"] == "Tool response"
-    
+        mock_response.json.return_value = {
+            "candidates": [{"content": {"parts": [{"text": "Test response"}]}}]
+        }
+        mock_response.raise_for_status = Mock()
+        mock_requests.post.return_value = mock_response
+
+        request = Request(
+            id=7,
+            method="tools/call",
+            params={"name": "ask_gemini", "arguments": {"question": "Test question"}},
+        )
+        response = await server_instance.handle_request(request)
+
+        assert response.result is not None
+        assert response.result["content"][0]["text"] == "Test response"
+
     @pytest.mark.asyncio
-    async def test_call_tool_invalid_tool(self, server):
-        """Test calling invalid tool raises error."""
-        with pytest.raises(ValueError, match="Unknown tool: invalid_tool"):
-            await server.call_tool("invalid_tool", {})
-    
+    async def test_ask_gemini_empty_question(self, server_instance):
+        """Test ask_gemini with empty question."""
+        request = Request(
+            id=8,
+            method="tools/call",
+            params={"name": "ask_gemini", "arguments": {"question": ""}},
+        )
+        response = await server_instance.handle_request(request)
+
+        assert response.result is not None
+        assert "Please provide a question" in response.result["content"][0]["text"]
+
     @pytest.mark.asyncio
-    async def test_call_tool_missing_arguments(self, server):
-        """Test calling tool with missing arguments."""
-        with pytest.raises(TypeError):
-            await server.call_tool("ask_gemini", {})
-    
-    @pytest.mark.asyncio
-    async def test_generation_config(self, server):
-        """Test generation config is properly set."""
-        assert server.generation_config["temperature"] == 0.7
-        assert server.generation_config["top_p"] == 0.9
-        assert server.generation_config["top_k"] == 40
-        assert server.generation_config["max_output_tokens"] == 8192
-    
-    @pytest.mark.asyncio
-    async def test_code_review_with_empty_context(self, server, mock_model):
-        """Test code review with empty context."""
+    async def test_code_review_success(self, server_instance, mock_requests):
+        """Test successful code review."""
         mock_response = Mock()
-        mock_response.text = "Review"
-        mock_model.generate_content_async.return_value = mock_response
-        
-        result = await server.code_review("code", "", "")
-        assert result == "Review"
-    
+        mock_response.json.return_value = {
+            "candidates": [{"content": {"parts": [{"text": "Code review feedback"}]}}]
+        }
+        mock_response.raise_for_status = Mock()
+        mock_requests.post.return_value = mock_response
+
+        request = Request(
+            id=9,
+            method="tools/call",
+            params={
+                "name": "gemini_code_review",
+                "arguments": {
+                    "code": "def hello(): print('world')",
+                    "context": "test.py",
+                    "focus_areas": "Check for bugs",
+                },
+            },
+        )
+        response = await server_instance.handle_request(request)
+
+        assert response.result is not None
+        assert response.result["content"][0]["text"] == "Code review feedback"
+
     @pytest.mark.asyncio
-    async def test_concurrent_requests(self, server, mock_model):
+    async def test_code_review_empty_code(self, server_instance):
+        """Test code review with empty code."""
+        request = Request(
+            id=10,
+            method="tools/call",
+            params={"name": "gemini_code_review", "arguments": {"code": ""}},
+        )
+        response = await server_instance.handle_request(request)
+
+        assert response.result is not None
+        assert "Please provide code to review" in response.result["content"][0]["text"]
+
+    @pytest.mark.asyncio
+    async def test_brainstorm_success(self, server_instance, mock_requests):
+        """Test successful brainstorming."""
+        mock_response = Mock()
+        mock_response.json.return_value = {
+            "candidates": [{"content": {"parts": [{"text": "Brainstorm ideas"}]}}]
+        }
+        mock_response.raise_for_status = Mock()
+        mock_requests.post.return_value = mock_response
+
+        request = Request(
+            id=11,
+            method="tools/call",
+            params={
+                "name": "gemini_brainstorm",
+                "arguments": {"topic": "Test topic", "constraints": "Test constraints"},
+            },
+        )
+        response = await server_instance.handle_request(request)
+
+        assert response.result is not None
+        assert response.result["content"][0]["text"] == "Brainstorm ideas"
+
+    @pytest.mark.asyncio
+    async def test_analyze_large_success(self, server_instance, mock_requests):
+        """Test successful large content analysis."""
+        mock_response = Mock()
+        mock_response.json.return_value = {
+            "candidates": [{"content": {"parts": [{"text": "Analysis results"}]}}]
+        }
+        mock_response.raise_for_status = Mock()
+        mock_requests.post.return_value = mock_response
+
+        request = Request(
+            id=12,
+            method="tools/call",
+            params={
+                "name": "gemini_analyze_large",
+                "arguments": {
+                    "content": "x" * 10000,
+                    "analysis_type": "performance",
+                    "questions": "specific questions",
+                },
+            },
+        )
+        response = await server_instance.handle_request(request)
+
+        assert response.result is not None
+        assert response.result["content"][0]["text"] == "Analysis results"
+
+    @pytest.mark.asyncio
+    async def test_analyze_large_truncation(self, server_instance, mock_requests):
+        """Test that large content is truncated properly."""
+        mock_response = Mock()
+        mock_response.json.return_value = {
+            "candidates": [{"content": {"parts": [{"text": "Truncated analysis"}]}}]
+        }
+        mock_response.raise_for_status = Mock()
+        mock_requests.post.return_value = mock_response
+
+        # Create content larger than the limit
+        large_content = "x" * 35000
+        request = Request(
+            id=13,
+            method="tools/call",
+            params={
+                "name": "gemini_analyze_large",
+                "arguments": {
+                    "content": large_content,
+                    "analysis_type": "general",
+                    "questions": "",
+                },
+            },
+        )
+        await server_instance.handle_request(request)
+
+        # Check that the content was truncated
+        call_args = mock_requests.post.call_args
+        payload = call_args[1]["json"]
+        sent_content = payload["contents"][0]["parts"][0]["text"]
+        assert "[Content truncated due to size...]" in sent_content
+
+    @pytest.mark.asyncio
+    async def test_api_error_handling(self, server_instance, mock_requests):
+        """Test API error handling."""
+        mock_requests.post.side_effect = Exception("API Error")
+
+        request = Request(
+            id=14,
+            method="tools/call",
+            params={"name": "ask_gemini", "arguments": {"question": "Test"}},
+        )
+        response = await server_instance.handle_request(request)
+
+        assert response.error is not None
+        assert "Error calling Gemini" in response.error["message"]
+
+    @pytest.mark.asyncio
+    async def test_concurrent_requests(self, server_instance, mock_requests):
         """Test server handles concurrent requests properly."""
         mock_response = Mock()
-        mock_response.text = "Concurrent response"
-        mock_model.generate_content_async.return_value = mock_response
-        
-        # Make multiple concurrent requests
-        tasks = [
-            server.ask_gemini(f"Question {i}")
+        mock_response.json.return_value = {
+            "candidates": [{"content": {"parts": [{"text": "Concurrent response"}]}}]
+        }
+        mock_response.raise_for_status = Mock()
+        mock_requests.post.return_value = mock_response
+
+        # Create multiple requests
+        requests = [
+            Request(
+                id=i,
+                method="tools/call",
+                params={
+                    "name": "ask_gemini",
+                    "arguments": {"question": f"Question {i}"},
+                },
+            )
             for i in range(5)
         ]
-        
-        results = await asyncio.gather(*tasks)
-        
-        assert len(results) == 5
-        assert all(r == "Concurrent response" for r in results)
-        assert mock_model.generate_content_async.call_count == 5
+
+        # Handle them concurrently
+        tasks = [server_instance.handle_request(req) for req in requests]
+        responses = await asyncio.gather(*tasks)
+
+        assert len(responses) == 5
+        for i, response in enumerate(responses):
+            assert response.id == i
+            assert response.result["content"][0]["text"] == "Concurrent response"

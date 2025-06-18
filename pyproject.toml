@@ -66,6 +66,9 @@ gemini_mcp = ["*.md", "requirements.txt"]
 [tool.ruff]
 line-length = 88
 target-version = "py38"
+extend-exclude = ["gemini-mcp/", "test_server.py"]
+
+[tool.ruff.lint]
 select = [
     "E",    # pycodestyle errors
     "W",    # pycodestyle warnings
@@ -82,7 +85,7 @@ ignore = [
     "B008",  # do not perform function calls in argument defaults
 ]
 
-[tool.ruff.isort]
+[tool.ruff.lint.isort]
 known-first-party = ["gemini_mcp"]
 
 [tool.black]
