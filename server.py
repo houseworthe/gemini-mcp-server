@@ -51,7 +51,7 @@ class Response:
 
 
 class GeminiMCPServer:
-    def __init__(self):
+    def __init__(self) -> None:
         # Configure Gemini
         self.api_key = os.getenv("GEMINI_API_KEY")
         if not self.api_key:
@@ -255,7 +255,7 @@ class GeminiMCPServer:
 
             data = response.json()
             if "candidates" in data and len(data["candidates"]) > 0:
-                return data["candidates"][0]["content"]["parts"][0]["text"]
+                return str(data["candidates"][0]["content"]["parts"][0]["text"])
             else:
                 return "No response generated"
 
@@ -361,7 +361,7 @@ Provide a comprehensive analysis covering:
         )
 
 
-async def read_stdin():
+async def read_stdin() -> asyncio.StreamReader:
     """Read from stdin asynchronously"""
     loop = asyncio.get_event_loop()
     reader = asyncio.StreamReader()
@@ -370,20 +370,20 @@ async def read_stdin():
     return reader
 
 
-async def write_stdout(data: str):
+async def write_stdout(data: str) -> None:
     """Write to stdout asynchronously"""
     sys.stdout.write(data)
     sys.stdout.flush()
 
 
-async def main():
+async def main() -> None:
     """Main server loop"""
     logger.info("Starting Gemini MCP Server v1")
 
     server = GeminiMCPServer()
 
     # Set up signal handling
-    def signal_handler(sig, _frame):
+    def signal_handler(sig: int, _frame: Any) -> None:
         logger.info(f"Received signal {sig}, shutting down")
         server.running = False
 
