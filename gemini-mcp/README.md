@@ -6,7 +6,7 @@ Integrates Google's Gemini AI into Claude Code via Model Context Protocol (MCP).
 
 ### One-liner install:
 ```bash
-curl -sSL https://raw.githubusercontent.com/ethanhouseworth/gemini-mcp/main/gemini-mcp/install.sh | bash
+curl -sSL https://raw.githubusercontent.com/houseworthe/gemini-mcp-server/main/gemini-mcp/install.sh | bash
 ```
 
 ### Manual install:
